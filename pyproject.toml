@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yt2mp3"
+version = "1.0.0"
+description = "Download YouTube videos as MP3 files from the command line"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2024.0.0",
+    "click>=8.0.0",
+]
+
+[project.scripts]
+yt2mp3 = "yt2mp3.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
