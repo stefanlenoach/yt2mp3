@@ -134,6 +134,47 @@ yt2mp3 trim song.mp3 --no-end
 yt2mp3 trim song.mp3 -t -40
 ```
 
+### Download transcripts
+
+Download captions/transcripts only (no audio):
+
+```bash
+# Download transcript as plain text
+yt2mp3 transcript "https://youtube.com/watch?v=..."
+
+# Or use the shortcut
+yt2mp3 t "https://youtube.com/watch?v=..."
+
+# Different formats
+yt2mp3 t "URL" -f txt   # Plain text (default)
+yt2mp3 t "URL" -f srt   # SRT subtitles with timestamps
+yt2mp3 t "URL" -f json  # JSON with timestamps
+
+# Download transcripts for entire playlist
+yt2mp3 t "PLAYLIST_URL"
+
+# First 10 videos only
+yt2mp3 t "PLAYLIST_URL" -n 10
+
+# Preview playlist without downloading
+yt2mp3 t "PLAYLIST_URL" --info
+
+# Different language
+yt2mp3 t "URL" -l es    # Spanish
+```
+
+Transcripts are organized by creator and playlist:
+```
+~/yt2mp3-transcripts/
+├── Huberman Lab/
+│   └── Huberman Lab Podcast/
+│       ├── Episode 1.txt
+│       └── Episode 2.txt
+└── Lex Fridman/
+    └── Lex Fridman Podcast/
+        └── Interview.txt
+```
+
 ### Manage downloads
 
 ```bash
@@ -160,6 +201,7 @@ yt2mp3 open
 | `batch` | Download multiple videos |
 | `watch` | Watch clipboard for YouTube URLs |
 | `trim` | Remove silence from start/end of files |
+| `transcript` / `t` | Download captions/transcripts only |
 | `list` | List downloaded MP3 files |
 | `config` | Show current configuration |
 | `set-dir` | Set default output directory |

@@ -407,3 +407,280 @@ def download_playlist(
                 progress_callback(i, total, title, e)
 
     return downloaded
+
+
+def get_transcript_dir() -> Path:
+    """Get the transcripts output directory."""
+    return get_output_dir().parent / "yt2mp3-transcripts"
+
+
+def _sanitize_path_component(name: str, max_length: int = 100) -> str:
+    """Sanitize a string for use in file/directory names."""
+    import re
+    # Remove invalid characters
+    safe = re.sub(r'[<>:"/\\|?*]', '', name)
+    # Replace multiple spaces with single space
+    safe = re.sub(r'\s+', ' ', safe).strip()
+    # Limit length
+    return safe[:max_length] if safe else "Unknown"
+
+
+def download_transcript(
+    url: str,
+    output_dir: Path | None = None,
+    language: str = "en",
+    include_auto: bool = True,
+    format: str = "txt",
+    creator_name: str | None = None,
+) -> Path | None:
+    """Download transcript/captions for a YouTube video.
+
+    Args:
+        url: YouTube video URL
+        output_dir: Output directory (defaults to ~/yt2mp3-transcripts/{creator})
+        language: Preferred language code (default: en)
+        include_auto: Include auto-generated captions if manual not available
+        format: Output format - "txt" (plain text), "srt" (subtitles), or "json" (with timestamps)
+        creator_name: Override creator name for folder organization
+
+    Returns:
+        Path to the transcript file, or None if no captions available
+    """
+    import tempfile
+    import re
+
+    # First, extract video info to get the title and channel
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+        video_title = info.get("title", "transcript")
+        channel = creator_name or info.get("channel") or info.get("uploader", "Unknown")
+
+        # Sanitize for filesystem
+        safe_title = _sanitize_path_component(video_title)
+        safe_channel = _sanitize_path_component(channel)
+
+    # Build output directory: base/creator/
+    if output_dir is None:
+        output_dir = get_transcript_dir() / safe_channel
+
+    output_dir = Path(output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Download subtitles to temp dir first
+    with tempfile.TemporaryDirectory() as temp_dir:
+        sub_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "writesubtitles": True,
+            "writeautomaticsub": include_auto,
+            "subtitleslangs": [language, f"{language}.*"],
+            "subtitlesformat": "vtt",
+            "outtmpl": f"{temp_dir}/%(id)s.%(ext)s",
+        }
+
+        with yt_dlp.YoutubeDL(sub_opts) as ydl:
+            ydl.download([url])
+
+        # Find the downloaded subtitle file
+        temp_path = Path(temp_dir)
+        vtt_files = list(temp_path.glob("*.vtt"))
+
+        if not vtt_files:
+            return None
+
+        vtt_file = vtt_files[0]
+        vtt_content = vtt_file.read_text(encoding="utf-8")
+
+        # Parse and convert based on format
+        if format == "txt":
+            # Extract plain text, removing timestamps and formatting
+            lines = []
+            for line in vtt_content.split("\n"):
+                # Skip WebVTT header, timestamps, and empty lines
+                if line.startswith("WEBVTT") or line.startswith("Kind:") or line.startswith("Language:"):
+                    continue
+                if "-->" in line:
+                    continue
+                if line.strip() == "":
+                    continue
+                if re.match(r"^\d+$", line.strip()):
+                    continue
+                # Remove HTML-like tags
+                clean_line = re.sub(r"<[^>]+>", "", line)
+                if clean_line.strip():
+                    lines.append(clean_line.strip())
+
+            # Remove duplicate consecutive lines (common in auto-captions)
+            deduped = []
+            for line in lines:
+                if not deduped or line != deduped[-1]:
+                    deduped.append(line)
+
+            content = "\n".join(deduped)
+            ext = "txt"
+
+        elif format == "srt":
+            # Convert VTT to SRT format
+            content = vtt_to_srt(vtt_content)
+            ext = "srt"
+
+        elif format == "json":
+            # Parse into JSON with timestamps
+            segments = parse_vtt_to_segments(vtt_content)
+            content = json.dumps(segments, indent=2)
+            ext = "json"
+
+        else:
+            raise ValueError(f"Unknown format: {format}")
+
+        # Write to output
+        output_path = output_dir / f"{safe_title}.{ext}"
+        output_path.write_text(content, encoding="utf-8")
+
+        return output_path
+
+
+def vtt_to_srt(vtt_content: str) -> str:
+    """Convert VTT subtitle format to SRT."""
+    import re
+
+    lines = vtt_content.split("\n")
+    srt_lines = []
+    counter = 1
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Look for timestamp lines
+        if "-->" in line:
+            # Convert VTT timestamp format to SRT (. -> ,)
+            timestamp = line.replace(".", ",")
+            # Remove any positioning info after the timestamp
+            timestamp = re.sub(r" .*$", "", timestamp)
+
+            srt_lines.append(str(counter))
+            srt_lines.append(timestamp)
+            counter += 1
+
+            # Collect text lines until empty line
+            i += 1
+            text_lines = []
+            while i < len(lines) and lines[i].strip():
+                text_lines.append(re.sub(r"<[^>]+>", "", lines[i]))
+                i += 1
+            srt_lines.extend(text_lines)
+            srt_lines.append("")
+        i += 1
+
+    return "\n".join(srt_lines)
+
+
+def parse_vtt_to_segments(vtt_content: str) -> list[dict]:
+    """Parse VTT content into list of segments with timestamps."""
+    import re
+
+    segments = []
+    lines = vtt_content.split("\n")
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        if "-->" in line:
+            # Parse timestamp
+            match = re.match(r"(\d+:\d+:\d+\.\d+|\d+:\d+\.\d+)\s*-->\s*(\d+:\d+:\d+\.\d+|\d+:\d+\.\d+)", line)
+            if match:
+                start_str, end_str = match.groups()
+
+                # Collect text
+                i += 1
+                text_lines = []
+                while i < len(lines) and lines[i].strip():
+                    clean = re.sub(r"<[^>]+>", "", lines[i])
+                    if clean.strip():
+                        text_lines.append(clean.strip())
+                    i += 1
+
+                if text_lines:
+                    segments.append({
+                        "start": start_str,
+                        "end": end_str,
+                        "text": " ".join(text_lines),
+                    })
+        i += 1
+
+    return segments
+
+
+def download_playlist_transcripts(
+    url: str,
+    output_dir: Path | None = None,
+    language: str = "en",
+    include_auto: bool = True,
+    format: str = "txt",
+    max_downloads: int | None = None,
+    progress_callback=None,
+) -> tuple[list[Path], Path]:
+    """Download transcripts for all videos in a playlist.
+
+    Args:
+        url: Playlist URL
+        output_dir: Output directory (defaults to ~/yt2mp3-transcripts/{creator}/{playlist})
+        language: Preferred language code
+        include_auto: Include auto-generated captions
+        format: Output format (txt, srt, json)
+        max_downloads: Max number of videos (None = all)
+        progress_callback: Called with (index, total, title, path_or_error)
+
+    Returns:
+        Tuple of (list of successfully downloaded transcript paths, output directory used)
+    """
+    # Get playlist info first to determine folder structure
+    playlist_info = get_playlist_info(url)
+
+    # Sanitize creator and playlist names for filesystem
+    creator = _sanitize_path_component(playlist_info["channel"])
+    playlist_name = _sanitize_path_component(playlist_info["title"])
+
+    # Build output directory: base/creator/playlist/
+    if output_dir is None:
+        output_dir = get_transcript_dir() / creator / playlist_name
+
+    output_dir = Path(output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    entries = playlist_info["entries"]
+
+    if max_downloads:
+        entries = entries[:max_downloads]
+
+    downloaded = []
+    total = len(entries)
+
+    for i, entry in enumerate(entries, 1):
+        video_url = entry["url"]
+        title = entry["title"]
+
+        try:
+            path = download_transcript(
+                url=video_url,
+                output_dir=output_dir,
+                language=language,
+                include_auto=include_auto,
+                format=format,
+                creator_name=playlist_info["channel"],  # Pass creator to avoid re-fetching
+            )
+            if path:
+                downloaded.append(path)
+                if progress_callback:
+                    progress_callback(i, total, title, path)
+            else:
+                if progress_callback:
+                    progress_callback(i, total, title, Exception("No captions available"))
+        except Exception as e:
+            if progress_callback:
+                progress_callback(i, total, title, e)
+
+    return downloaded, output_dir

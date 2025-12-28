@@ -449,5 +449,128 @@ def trim(file, trim_all, start, end, threshold):
             click.secho(f" error: {e}", fg="red")
 
 
+@cli.command("transcript")
+@click.argument("url")
+@click.option("-o", "--output", type=click.Path(), help="Output directory")
+@click.option("-l", "--lang", default="en", help="Language code (default: en)")
+@click.option("-f", "--format", "fmt", type=click.Choice(["txt", "srt", "json"]), default="txt", help="Output format")
+@click.option("--no-auto", is_flag=True, help="Skip auto-generated captions")
+@click.option("-n", "--max", "max_downloads", type=int, help="Max videos for playlist")
+@click.option("--info", "info_only", is_flag=True, help="Show playlist info without downloading")
+def transcript(url, output, lang, fmt, no_auto, max_downloads, info_only):
+    """Download transcript/captions for a video or playlist.
+
+    \b
+    Downloads captions only (no audio).
+    Saves to ~/yt2mp3-transcripts/{creator}/{playlist}/ by default.
+
+    \b
+    Examples:
+      yt2mp3 transcript "URL"                    # Download as plain text
+      yt2mp3 transcript "URL" -f srt             # Download as SRT subtitles
+      yt2mp3 transcript "URL" -f json            # Download with timestamps
+      yt2mp3 transcript "PLAYLIST_URL" -n 10    # First 10 videos from playlist
+    """
+    output_dir = Path(output) if output else None
+    include_auto = not no_auto
+
+    # Check if it's a playlist
+    is_playlist = "playlist" in url.lower() or "list=" in url
+
+    if is_playlist:
+        click.echo("Fetching playlist info...")
+        try:
+            info = downloader.get_playlist_info(url)
+        except Exception as e:
+            click.secho(f"Error: {e}", fg="red")
+            raise SystemExit(1)
+
+        click.echo(f"\nPlaylist: {info['title']}")
+        click.echo(f"Channel: {info['channel']}")
+        click.echo(f"Videos: {info['count']}")
+
+        if info_only:
+            click.echo()
+            for i, entry in enumerate(info["entries"], 1):
+                click.echo(f"  {i:3}. [{entry['duration']:>5}] {entry['title']}")
+            return
+
+        entries = info["entries"]
+        if max_downloads:
+            entries = entries[:max_downloads]
+            click.echo(f"Downloading first {max_downloads} transcripts...")
+        else:
+            click.echo(f"Downloading {len(entries)} transcripts...")
+
+        click.echo(f"Format: {fmt}")
+        click.echo()
+
+        succeeded = 0
+        failed = 0
+
+        def on_progress(idx, total, title, result):
+            nonlocal succeeded, failed
+            if isinstance(result, Exception):
+                click.echo(f"[{idx}/{total}] {title}")
+                click.secho(f"  Error: {result}", fg="red")
+                failed += 1
+            else:
+                click.echo(f"[{idx}/{total}] {title}")
+                click.secho(f"  -> {result.name}", fg="green")
+                succeeded += 1
+
+        _, actual_output_dir = downloader.download_playlist_transcripts(
+            url=url,
+            output_dir=output_dir,
+            language=lang,
+            include_auto=include_auto,
+            format=fmt,
+            max_downloads=max_downloads,
+            progress_callback=on_progress,
+        )
+
+        click.echo()
+        click.echo(f"Completed: {succeeded}/{succeeded + failed} succeeded")
+        click.echo(f"Output: {actual_output_dir}")
+
+    else:
+        # Single video
+        click.echo(f"Downloading transcript: {url}")
+        click.echo(f"Format: {fmt}")
+        click.echo()
+
+        try:
+            result_path = downloader.download_transcript(
+                url=url,
+                output_dir=output_dir,
+                language=lang,
+                include_auto=include_auto,
+                format=fmt,
+            )
+            if result_path:
+                click.secho(f"Saved: {result_path}", fg="green")
+            else:
+                click.secho("No captions available for this video.", fg="yellow")
+        except Exception as e:
+            click.secho(f"Error: {e}", fg="red")
+            raise SystemExit(1)
+
+
+# Alias 't' for transcript
+@cli.command("t")
+@click.argument("url")
+@click.option("-o", "--output", type=click.Path(), help="Output directory")
+@click.option("-l", "--lang", default="en", help="Language code (default: en)")
+@click.option("-f", "--format", "fmt", type=click.Choice(["txt", "srt", "json"]), default="txt", help="Output format")
+@click.option("--no-auto", is_flag=True, help="Skip auto-generated captions")
+@click.option("-n", "--max", "max_downloads", type=int, help="Max videos for playlist")
+@click.option("--info", "info_only", is_flag=True, help="Show playlist info without downloading")
+@click.pass_context
+def transcript_alias(ctx, url, output, lang, fmt, no_auto, max_downloads, info_only):
+    """Shortcut for 'transcript' command."""
+    ctx.invoke(transcript, url=url, output=output, lang=lang, fmt=fmt,
+               no_auto=no_auto, max_downloads=max_downloads, info_only=info_only)
+
+
 if __name__ == "__main__":
     cli()
