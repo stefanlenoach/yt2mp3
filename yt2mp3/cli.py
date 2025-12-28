@@ -268,6 +268,131 @@ def watch(quality, output, yes, interval):
         click.echo("\nStopped watching.")
 
 
+@cli.command("search")
+@click.argument("query", nargs=-1, required=True)
+@click.option("-n", "--count", default=10, help="Number of results (default: 10)")
+@click.option("-d", "--download", "download_idx", type=int, help="Download result by number")
+@click.option("-q", "--quality", type=click.Choice(["128", "192", "320"]), default="192", help="Audio quality")
+def search(query, count, download_idx, quality):
+    """Search YouTube and optionally download.
+
+    \b
+    Examples:
+      yt2mp3 search "lofi hip hop"           # Search and show results
+      yt2mp3 search "song name" -d 1         # Download first result
+      yt2mp3 search "artist song" -d 1 -q 320
+    """
+    query_str = " ".join(query)
+    click.echo(f"Searching: {query_str}...")
+
+    try:
+        results = downloader.search_youtube(query_str, max_results=count)
+    except Exception as e:
+        click.secho(f"Error: {e}", fg="red")
+        raise SystemExit(1)
+
+    if not results:
+        click.echo("No results found.")
+        return
+
+    click.echo()
+    for i, r in enumerate(results, 1):
+        click.echo(f"  {i:2}. [{r['duration']:>5}] {r['title']}")
+        click.echo(f"      {r['channel']}")
+
+    if download_idx:
+        if download_idx < 1 or download_idx > len(results):
+            click.secho(f"Invalid selection: {download_idx}", fg="red")
+            raise SystemExit(1)
+
+        selected = results[download_idx - 1]
+        click.echo()
+        click.echo(f"Downloading: {selected['title']}")
+
+        try:
+            result_path = downloader.download_as_mp3(
+                url=selected["url"],
+                quality=int(quality),
+            )
+            click.secho(f"Saved: {result_path}", fg="green")
+        except Exception as e:
+            click.secho(f"Error: {e}", fg="red")
+            raise SystemExit(1)
+    else:
+        click.echo()
+        click.echo("Use -d N to download a result, e.g.: yt2mp3 search \"query\" -d 1")
+
+
+@cli.command("playlist")
+@click.argument("url")
+@click.option("-o", "--output", type=click.Path(), help="Output directory")
+@click.option("-q", "--quality", type=click.Choice(["128", "192", "320"]), default="192", help="Audio quality")
+@click.option("-n", "--max", "max_downloads", type=int, help="Max videos to download")
+@click.option("--info", "info_only", is_flag=True, help="Show playlist info without downloading")
+def playlist(url, output, quality, max_downloads, info_only):
+    """Download an entire YouTube playlist.
+
+    \b
+    Examples:
+      yt2mp3 playlist "URL"              # Download entire playlist
+      yt2mp3 playlist "URL" -n 5         # Download first 5 videos
+      yt2mp3 playlist "URL" --info       # Just show playlist contents
+    """
+    click.echo("Fetching playlist info...")
+
+    try:
+        info = downloader.get_playlist_info(url)
+    except Exception as e:
+        click.secho(f"Error: {e}", fg="red")
+        raise SystemExit(1)
+
+    click.echo(f"\nPlaylist: {info['title']}")
+    click.echo(f"Channel: {info['channel']}")
+    click.echo(f"Videos: {info['count']}")
+
+    if info_only:
+        click.echo()
+        for i, entry in enumerate(info["entries"], 1):
+            click.echo(f"  {i:3}. [{entry['duration']:>5}] {entry['title']}")
+        return
+
+    entries = info["entries"]
+    if max_downloads:
+        entries = entries[:max_downloads]
+        click.echo(f"Downloading first {max_downloads} videos...")
+    else:
+        click.echo(f"Downloading {len(entries)} videos...")
+
+    click.echo()
+
+    output_dir = Path(output) if output else None
+    quality_int = int(quality)
+    succeeded = 0
+    failed = 0
+
+    def on_progress(idx, total, title, result):
+        nonlocal succeeded, failed
+        if isinstance(result, Exception):
+            click.echo(f"[{idx}/{total}] {title}")
+            click.secho(f"  Error: {result}", fg="red")
+            failed += 1
+        else:
+            click.echo(f"[{idx}/{total}] {title}")
+            click.secho(f"  -> {result.name}", fg="green")
+            succeeded += 1
+
+    downloader.download_playlist(
+        url=url,
+        output_dir=output_dir,
+        quality=quality_int,
+        max_downloads=max_downloads,
+        progress_callback=on_progress,
+    )
+
+    click.echo()
+    click.echo(f"Completed: {succeeded}/{succeeded + failed} succeeded")
+
+
 @cli.command("trim")
 @click.argument("file", type=click.Path(exists=True), required=False)
 @click.option("--all", "trim_all", is_flag=True, help="Trim all files in the output directory")

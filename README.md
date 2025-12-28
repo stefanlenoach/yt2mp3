@@ -54,6 +54,36 @@ yt2mp3 d "URL" -s 1m30s -d 30s
 yt2mp3 d "URL" -s 1:02:30 -e 1:05:00
 ```
 
+### Search and download
+
+Search YouTube without needing a URL:
+
+```bash
+# Search and show results
+yt2mp3 search "lofi hip hop"
+
+# Download the first result directly
+yt2mp3 search "song name" -d 1
+
+# Show more results
+yt2mp3 search "query" -n 20
+```
+
+### Playlist downloads
+
+Download entire YouTube playlists:
+
+```bash
+# Download all videos in a playlist
+yt2mp3 playlist "https://youtube.com/playlist?list=..."
+
+# Download first 5 videos only
+yt2mp3 playlist "URL" -n 5
+
+# Preview playlist contents without downloading
+yt2mp3 playlist "URL" --info
+```
+
 ### Batch downloads
 
 Download multiple videos at once:
@@ -125,6 +155,8 @@ yt2mp3 open
 | Command | Description |
 |---------|-------------|
 | `download` / `d` | Download a YouTube video as MP3 |
+| `search` | Search YouTube and download results |
+| `playlist` | Download entire playlists |
 | `batch` | Download multiple videos |
 | `watch` | Watch clipboard for YouTube URLs |
 | `trim` | Remove silence from start/end of files |

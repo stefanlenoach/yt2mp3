@@ -275,3 +275,135 @@ def get_audio_duration(path: Path) -> float:
         raise RuntimeError(f"ffprobe failed: {result.stderr}")
 
     return float(result.stdout.strip())
+
+
+def search_youtube(query: str, max_results: int = 10) -> list[dict]:
+    """Search YouTube and return video info.
+
+    Returns list of dicts with: id, title, duration, channel, url
+    """
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        search_url = f"ytsearch{max_results}:{query}"
+        info = ydl.extract_info(search_url, download=False)
+
+        results = []
+        for entry in info.get("entries", []):
+            duration = entry.get("duration", 0)
+            if duration:
+                mins, secs = divmod(int(duration), 60)
+                duration_str = f"{mins}:{secs:02d}"
+            else:
+                duration_str = "?"
+
+            results.append({
+                "id": entry.get("id"),
+                "title": entry.get("title", "Unknown"),
+                "duration": duration_str,
+                "duration_secs": duration,
+                "channel": entry.get("channel") or entry.get("uploader", "Unknown"),
+                "url": entry.get("url") or f"https://youtube.com/watch?v={entry.get('id')}",
+            })
+
+        return results
+
+
+def get_playlist_info(url: str) -> dict:
+    """Get info about a playlist without downloading.
+
+    Returns dict with: title, channel, count, entries (list of video info)
+    """
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+        entries = []
+        for entry in info.get("entries", []):
+            if entry is None:
+                continue
+            duration = entry.get("duration", 0)
+            if duration:
+                mins, secs = divmod(int(duration), 60)
+                duration_str = f"{mins}:{secs:02d}"
+            else:
+                duration_str = "?"
+
+            entries.append({
+                "id": entry.get("id"),
+                "title": entry.get("title", "Unknown"),
+                "duration": duration_str,
+                "duration_secs": duration or 0,
+                "url": entry.get("url") or f"https://youtube.com/watch?v={entry.get('id')}",
+            })
+
+        return {
+            "title": info.get("title", "Unknown Playlist"),
+            "channel": info.get("channel") or info.get("uploader", "Unknown"),
+            "count": len(entries),
+            "entries": entries,
+        }
+
+
+def download_playlist(
+    url: str,
+    output_dir: Path | None = None,
+    quality: int = 192,
+    max_downloads: int | None = None,
+    progress_callback=None,
+) -> list[Path]:
+    """Download all videos from a playlist as MP3.
+
+    Args:
+        url: Playlist URL
+        output_dir: Output directory
+        quality: Audio quality in kbps
+        max_downloads: Max number of videos to download (None = all)
+        progress_callback: Called with (index, total, title, path_or_error)
+
+    Returns:
+        List of successfully downloaded file paths
+    """
+    if output_dir is None:
+        output_dir = get_output_dir()
+
+    output_dir = Path(output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # First get playlist info
+    playlist_info = get_playlist_info(url)
+    entries = playlist_info["entries"]
+
+    if max_downloads:
+        entries = entries[:max_downloads]
+
+    downloaded = []
+    total = len(entries)
+
+    for i, entry in enumerate(entries, 1):
+        video_url = entry["url"]
+        title = entry["title"]
+
+        try:
+            path = download_as_mp3(
+                url=video_url,
+                output_dir=output_dir,
+                quality=quality,
+            )
+            downloaded.append(path)
+            if progress_callback:
+                progress_callback(i, total, title, path)
+        except Exception as e:
+            if progress_callback:
+                progress_callback(i, total, title, e)
+
+    return downloaded
