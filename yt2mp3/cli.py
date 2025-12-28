@@ -268,5 +268,61 @@ def watch(quality, output, yes, interval):
         click.echo("\nStopped watching.")
 
 
+@cli.command("trim")
+@click.argument("file", type=click.Path(exists=True), required=False)
+@click.option("--all", "trim_all", is_flag=True, help="Trim all files in the output directory")
+@click.option("--start/--no-start", default=True, help="Trim silence from start (default: yes)")
+@click.option("--end/--no-end", default=True, help="Trim silence from end (default: yes)")
+@click.option("-t", "--threshold", default=-50, help="Silence threshold in dB (default: -50)")
+def trim(file, trim_all, start, end, threshold):
+    """Remove silence from the beginning/end of MP3 files.
+
+    \b
+    Examples:
+      yt2mp3 trim "song.mp3"           # Trim a specific file
+      yt2mp3 trim --all                # Trim all files in output dir
+      yt2mp3 trim song.mp3 --no-end    # Only trim start
+      yt2mp3 trim song.mp3 -t -40      # More aggressive threshold
+    """
+    if not file and not trim_all:
+        click.echo("Specify a file or use --all to trim all files.")
+        raise SystemExit(1)
+
+    files_to_trim = []
+
+    if trim_all:
+        output_dir = downloader.get_output_dir()
+        files_to_trim = list(output_dir.glob("*.mp3"))
+        if not files_to_trim:
+            click.echo(f"No MP3 files found in {output_dir}")
+            return
+        click.echo(f"Trimming {len(files_to_trim)} files in {output_dir}...")
+    else:
+        files_to_trim = [Path(file)]
+
+    for mp3_path in files_to_trim:
+        try:
+            before_duration = downloader.get_audio_duration(mp3_path)
+
+            click.echo(f"Trimming: {mp3_path.name}...", nl=False)
+            downloader.trim_silence(
+                mp3_path,
+                threshold_db=threshold,
+                trim_start=start,
+                trim_end=end,
+            )
+
+            after_duration = downloader.get_audio_duration(mp3_path)
+            saved = before_duration - after_duration
+
+            if saved > 0.1:
+                click.secho(f" removed {saved:.1f}s", fg="green")
+            else:
+                click.echo(" no silence found")
+
+        except Exception as e:
+            click.secho(f" error: {e}", fg="red")
+
+
 if __name__ == "__main__":
     cli()

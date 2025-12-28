@@ -86,6 +86,24 @@ yt2mp3 watch -y -q 320
 
 Keep a terminal running with `yt2mp3 watch`, then just copy any YouTube URL from your browser. It will automatically detect and download it.
 
+### Trim silence
+
+Remove silence from the beginning and end of tracks:
+
+```bash
+# Trim a specific file
+yt2mp3 trim "song.mp3"
+
+# Trim all files in output directory
+yt2mp3 trim --all
+
+# Only trim start (keep ending)
+yt2mp3 trim song.mp3 --no-end
+
+# More aggressive threshold (-40dB instead of -50dB)
+yt2mp3 trim song.mp3 -t -40
+```
+
 ### Manage downloads
 
 ```bash
@@ -109,6 +127,7 @@ yt2mp3 open
 | `download` / `d` | Download a YouTube video as MP3 |
 | `batch` | Download multiple videos |
 | `watch` | Watch clipboard for YouTube URLs |
+| `trim` | Remove silence from start/end of files |
 | `list` | List downloaded MP3 files |
 | `config` | Show current configuration |
 | `set-dir` | Set default output directory |

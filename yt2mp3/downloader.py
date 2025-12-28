@@ -162,3 +162,116 @@ def download_as_mp3(
             final_path = Path(safe_title).with_suffix(".mp3")
 
     return final_path
+
+
+def trim_silence(
+    input_path: Path,
+    output_path: Path | None = None,
+    threshold_db: float = -50,
+    min_silence_duration: float = 0.1,
+    trim_start: bool = True,
+    trim_end: bool = True,
+) -> Path:
+    """Remove silence from the beginning and/or end of an audio file.
+
+    Args:
+        input_path: Path to the input audio file
+        output_path: Path for output file (defaults to overwriting input)
+        threshold_db: Volume threshold in dB below which is considered silence (default -50dB)
+        min_silence_duration: Minimum duration of silence to detect (default 0.1s)
+        trim_start: Whether to trim silence from the start
+        trim_end: Whether to trim silence from the end
+
+    Returns:
+        Path to the output file
+    """
+    import subprocess
+    import tempfile
+
+    input_path = Path(input_path).resolve()
+    if output_path is None:
+        output_path = input_path
+    else:
+        output_path = Path(output_path).resolve()
+
+    # Build the silenceremove filter
+    filters = []
+
+    if trim_start:
+        # Remove silence from start: stop after first non-silence
+        filters.append(
+            f"silenceremove=start_periods=1:start_duration={min_silence_duration}:start_threshold={threshold_db}dB"
+        )
+
+    if trim_end:
+        # Remove silence from end: reverse, remove from "start", reverse back
+        filters.append(
+            f"areverse,silenceremove=start_periods=1:start_duration={min_silence_duration}:start_threshold={threshold_db}dB,areverse"
+        )
+
+    if not filters:
+        return input_path
+
+    filter_chain = ",".join(filters)
+
+    # Use temp file if overwriting
+    if output_path == input_path:
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".mp3")
+        temp_path = Path(temp_path)
+    else:
+        temp_path = output_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i", str(input_path),
+            "-af", filter_chain,
+            "-acodec", "libmp3lame",
+            "-q:a", "2",
+            str(temp_path),
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg failed: {result.stderr}")
+
+        # If overwriting, replace the original
+        if output_path == input_path:
+            import shutil
+            shutil.move(str(temp_path), str(output_path))
+
+    finally:
+        # Clean up temp file if it still exists
+        if output_path == input_path and temp_path.exists():
+            temp_path.unlink()
+
+    return output_path
+
+
+def get_audio_duration(path: Path) -> float:
+    """Get the duration of an audio file in seconds."""
+    import subprocess
+
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v", "quiet",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed: {result.stderr}")
+
+    return float(result.stdout.strip())
