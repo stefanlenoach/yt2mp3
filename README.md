@@ -69,6 +69,23 @@ yt2mp3 batch -f urls.txt
 yt2mp3 batch "url1" -f more_urls.txt -q 320
 ```
 
+### Clipboard watcher
+
+Auto-detect YouTube URLs when you copy them:
+
+```bash
+# Interactive mode - prompts before each download
+yt2mp3 watch
+
+# Auto-download mode - no prompts
+yt2mp3 watch -y
+
+# With options
+yt2mp3 watch -y -q 320
+```
+
+Keep a terminal running with `yt2mp3 watch`, then just copy any YouTube URL from your browser. It will automatically detect and download it.
+
 ### Manage downloads
 
 ```bash
@@ -91,6 +108,7 @@ yt2mp3 open
 |---------|-------------|
 | `download` / `d` | Download a YouTube video as MP3 |
 | `batch` | Download multiple videos |
+| `watch` | Watch clipboard for YouTube URLs |
 | `list` | List downloaded MP3 files |
 | `config` | Show current configuration |
 | `set-dir` | Set default output directory |

@@ -211,5 +211,62 @@ def open_dir():
     click.echo(f"Opened: {output_dir}")
 
 
+@cli.command("watch")
+@click.option("-q", "--quality", type=click.Choice(["128", "192", "320"]), default="192", help="Audio quality in kbps")
+@click.option("-o", "--output", type=click.Path(), help="Output directory")
+@click.option("-y", "--yes", is_flag=True, help="Auto-download without prompting")
+@click.option("-i", "--interval", default=1.0, help="Clipboard check interval in seconds")
+def watch(quality, output, yes, interval):
+    """Watch clipboard for YouTube URLs and auto-download.
+
+    \b
+    Run this in a terminal, then copy any YouTube URL.
+    The tool will detect it and prompt you to download.
+
+    \b
+    Examples:
+      yt2mp3 watch              # Interactive mode
+      yt2mp3 watch -y           # Auto-download without prompts
+      yt2mp3 watch -q 320 -y    # Auto-download at 320kbps
+    """
+    from . import watcher
+
+    output_dir = Path(output) if output else None
+    quality_int = int(quality)
+
+    click.echo("Watching clipboard for YouTube URLs...")
+    click.echo(f"Quality: {quality_int} kbps")
+    click.echo(f"Output: {output_dir or downloader.get_output_dir()}")
+    if yes:
+        click.echo("Auto-download: ON")
+    click.echo("Press Ctrl+C to stop.\n")
+
+    def on_url_detected(url):
+        click.echo(f"\nDetected: {url}")
+
+        if not yes:
+            if not click.confirm("Download?", default=True):
+                click.echo("Skipped.")
+                return
+
+        click.echo("Downloading...")
+        try:
+            result_path = downloader.download_as_mp3(
+                url=url,
+                output_dir=output_dir,
+                quality=quality_int,
+            )
+            click.secho(f"Saved: {result_path}", fg="green")
+        except Exception as e:
+            click.secho(f"Error: {e}", fg="red")
+
+        click.echo("\nWatching...")
+
+    try:
+        watcher.watch_clipboard(on_url_detected, interval=interval)
+    except KeyboardInterrupt:
+        click.echo("\nStopped watching.")
+
+
 if __name__ == "__main__":
     cli()
